@@ -1,0 +1,49 @@
+#!/bin/bash
+# push の前に、push するコミットの範囲だけを gitleaks で検査する (gitleaks dir は gitignore 済みの機密ファイルまで読むので使わない)。
+# 有効にする: git config core.hooksPath .githooks
+# 誤検知は .gitleaksignore に fingerprint を足して除く。
+#
+# gitleaks git は、git log が失敗しても「0 commits scanned」で 0 を返す。範囲は先に git rev-list で確かめ、
+# 失敗したら止める (検査しないまま push を通さない)。
+set -uo pipefail
+
+if ! command -v gitleaks >/dev/null; then
+  echo "pre-push: gitleaks が見つかりません。brew install gitleaks で入れてください。" >&2
+  exit 1
+fi
+
+zero="0000000000000000000000000000000000000000"
+status=0
+
+# 標準入力: <local ref> <local sha> <remote ref> <remote sha> を push する ref ごとに 1 行
+while read -r _local_ref local_sha _remote_ref remote_sha; do
+  [ "$local_sha" = "$zero" ] && continue   # ブランチの削除
+  if [ "$remote_sha" = "$zero" ]; then
+    range=("$local_sha" --not --remotes)     # 新しいブランチ: まだどのリモートにも無いコミット
+  else
+    range=("$remote_sha..$local_sha")
+  fi
+
+  if ! count="$(git rev-list --count "${range[@]}" 2>/dev/null)"; then
+    echo "pre-push: push する範囲 (${range[*]}) を git で解決できません。git fetch してから push し直してください。" >&2
+    status=1
+    continue
+  fi
+  [ "$count" = 0 ] && continue
+
+  gitleaks git --redact --no-banner --log-opts="${range[*]}"
+  rc=$?
+  case "$rc" in
+    0) ;;
+    1)
+      echo "pre-push: gitleaks が機密値の疑いを検出しました (${range[*]})。push を止めます。" >&2
+      status=1
+      ;;
+    *)
+      echo "pre-push: gitleaks がエラーで終わりました (終了コード $rc)。push を止めます。" >&2
+      status=1
+      ;;
+  esac
+done
+
+exit "$status"
