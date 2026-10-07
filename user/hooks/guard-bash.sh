@@ -226,12 +226,26 @@ fi
 if grep -Eq 'gh([^|;&]*)[[:space:]]pr[[:space:]]+merge([^|;&]*)[[:space:]](--admin|--auto)' <<<"$cmd"; then
   block "gh pr merge --admin / --auto は禁止 (確認済みの PR を通常マージする)"
 fi
-# gh api の変更系呼び出しは承認 (ask) やブロックを迂回できるため禁止 (GET のみ可)
+# gh api の変更系呼び出しは承認 (ask) やブロックを迂回できるため禁止 (GET のみ可)。
+# 例外: リポジトリの設定の経路 (リポジトリ本体・rulesets・private-vulnerability-reporting・vulnerability-alerts・actions/permissions) への
+# 単独の呼び出しは、ユーザーの承認 (ask) を経て可。公開範囲・改名などのフィールドと、リポジトリ本体への --input は除く
 if grep -Eq "${P}gh[[:space:]]+api([^|;&]*)[[:space:]](-X|--method)[[:space:]=]*[\"']?(POST|PUT|PATCH|DELETE|post|put|patch|delete)" <<<"$cmd" \
    || { grep -Eq "${P}gh[[:space:]]+api([^|;&]*)[[:space:]](-f|-F|--field|--raw-field|--input)([[:space:]=]|$)" <<<"$cmd" \
         && ! { grep -Eq "${P}gh[[:space:]]+api[[:space:]]+graphql([[:space:]]|$)" <<<"$cmd" \
                && ! grep -Eiq 'mutation|--input' <<<"$cmd"; }; }; then
-  block "gh api の変更系リクエスト (POST/PUT/PATCH/DELETE、-f/-F/--input) は禁止"
+  gh_cmd="${cmd//2>&1/}"
+  gh_path='[[:space:]]repos/[^/[:space:]]+/[^/[:space:]]+(/(rulesets(/[0-9]+)?|private-vulnerability-reporting|vulnerability-alerts|actions/permissions(/[A-Za-z0-9_-]+)*))?([[:space:]]|$)'
+  gh_root='[[:space:]]repos/[^/[:space:]]+/[^/[:space:]]+([[:space:]]|$)'
+  if [ "$(wc -l <<<"$gh_cmd" | tr -d ' ')" -le 1 ] \
+     && [ "$(grep -oE 'gh[[:space:]]+api' <<<"$gh_cmd" | wc -l | tr -d ' ')" = 1 ] \
+     && ! grep -Eq '[;&`]|\$\(' <<<"$gh_cmd" \
+     && grep -Eq "${P}gh[[:space:]]+api${gh_path}|${P}gh[[:space:]]+api[^|;&]*${gh_path}" <<<"$gh_cmd" \
+     && ! grep -Eq '(^|[[:space:]])(-f|-F|--field|--raw-field)[[:space:]=]*(visibility|archived|default_branch|name|private)=' <<<"$gh_cmd" \
+     && ! { grep -Eq "$gh_root" <<<"$gh_cmd" && grep -Eq '(^|[[:space:]])--input([[:space:]=]|$)' <<<"$gh_cmd"; }; then
+    pending_ask="gh api (リポジトリ設定の変更): ユーザーがチャットで対象のリポジトリと設定を指して OK していることを確認して承認してください"
+  else
+    block "gh api の変更系リクエスト (POST/PUT/PATCH/DELETE、-f/-F/--input) は禁止 (リポジトリ設定の経路への単独の呼び出しを除く)"
+  fi
 fi
 
 # --- コミットしていない作業を消す git 操作 (承認) ---
