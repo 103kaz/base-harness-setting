@@ -49,10 +49,10 @@ check $ALLOW 'grep -rn "event.key ===" src/'
 check $ALLOW 'grep -rn item.key src'
 check $BLOCK 'cat server.key'
 check $BLOCK 'cat keys/my.key'
-# コードの検索パターン (grep "setting.key " Shared/) は鍵ファイルではない。パスに見えるものと、引用符の外のファイル名は止める
-check $ALLOW 'grep -rn "setting.key " Shared/'
-check $ALLOW "rg -n 'rawValue.key' Shared/"
-check $ALLOW 'grep -rn "SettingKey.key" --include=*.swift .'
+# コードの検索パターン (grep "config.key " src/) は鍵ファイルではない。パスに見えるものと、引用符の外のファイル名は止める
+check $ALLOW 'grep -rn "config.key " src/'
+check $ALLOW "rg -n 'item.key' src/"
+check $ALLOW 'grep -rn "ConfigKey.key" --include=*.ts .'
 check $BLOCK 'grep -rn "x" server.key'
 check $BLOCK 'grep -rn "x" "keys/server.key"'
 check $BLOCK 'grep "x" ~/certs/tls.pem'
