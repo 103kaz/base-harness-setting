@@ -77,14 +77,37 @@ expect "skills が配布される" test -f "$home/skills/adversarial-review/SKIL
 expect "配布した test-guard.sh が通る" bash "$home/hooks/test-guard.sh"
 
 # --- scripts/doctor.sh ---
-expect "doctor: 配布直後の個人共通とプロジェクトが通る" env CLAUDE_HOME="$home" bash "$BASE/scripts/doctor.sh" "$proj"
-cp -R "$home" "$tmp/doctor-home"
-rm "$tmp/doctor-home/hooks/guard-bash.sh"
-expect "doctor: ガードのファイルが無ければ NG" bash -c "! CLAUDE_HOME='$tmp/doctor-home' bash '$BASE/scripts/doctor.sh'"
-printf '#!/bin/bash\nexit 0\n' >"$tmp/doctor-home/hooks/guard-bash.sh"
-expect "doctor: 何も止めないガードは NG" bash -c "! CLAUDE_HOME='$tmp/doctor-home' bash '$BASE/scripts/doctor.sh'"
-expect "doctor: プロジェクトが無ければ NG" bash -c "! CLAUDE_HOME='$home' bash '$BASE/scripts/doctor.sh' '$tmp/no-such-dir'"
-expect "doctor: 雛形のままの verify.sh は warn で止めない" bash -c "CLAUDE_HOME='$home' bash '$BASE/scripts/doctor.sh' '$proj' | grep -q 'warn  .claude/verify.sh が雛形のまま'"
+doctor_case() { # doctor_case <説明> <期待する終了コード> <出力に含まれる語> <CLAUDE_HOME> [引数...]。終了コードだけでなく理由まで確かめる
+  local desc="$1" want="$2" pat="$3" ch="$4" out rc; shift 4
+  out="$(CLAUDE_HOME="$ch" bash "$BASE/scripts/doctor.sh" "$@" 2>&1)"; rc=$?
+  { [ "$rc" = "$want" ] && grep -qF -- "$pat" <<<"$out"; } || ng "$desc (終了コード $rc)"
+}
+dh() { rm -rf "$tmp/dh"; cp -R "$home" "$tmp/dh"; } # 配布直後の個人共通を壊す前の状態に戻す
+doctor_case "doctor: 配布直後の個人共通とプロジェクトが通る" 0 "問題ありません" "$home" "$proj"
+doctor_case "doctor: 雛形のままの verify.sh は warn で止めない" 0 "warn  .claude/verify.sh が雛形のまま" "$home" "$proj"
+dh; rm "$tmp/dh/hooks/guard-bash.sh"
+doctor_case "doctor: ガードのファイルが無ければ NG" 1 "NG    hooks/guard-bash.sh が無い" "$tmp/dh"
+dh; printf '#!/bin/bash\nexit 0\n' >"$tmp/dh/hooks/guard-bash.sh"
+doctor_case "doctor: 何も止めないガードは NG" 1 "NG    ガード: main への force push を止める" "$tmp/dh"
+dh; printf '#!/bin/bash\nexit 2\n' >"$tmp/dh/hooks/guard-bash.sh"
+doctor_case "doctor: 何でも止めるガードは NG" 1 "NG    ガード: 普通のコマンドは通す (ls)" "$tmp/dh"
+dh; echo '{"//":"guard-bash.sh guard-mcp.sh remind-adversarial-review.sh","deny":[]' >"$tmp/dh/settings.json"
+doctor_case "doctor: 壊れた settings.json は NG (語があるだけでは ok にしない)" 1 "NG    settings.json が JSON として読めない" "$tmp/dh"
+dh; echo '{"permissions":{"deny":["Read(x)"],"ask":["Bash(git push)"]}}' >"$tmp/dh/settings.json"
+doctor_case "doctor: フックの登録が無い settings.json は NG" 1 "NG    settings.json が PreToolUse に guard-bash.sh を登録していない" "$tmp/dh"
+dh; echo '{"hooks":{"PreToolUse":[{"hooks":[{"command":"guard-bash.sh guard-mcp.sh"}]}],"UserPromptSubmit":[{"hooks":[{"command":"remind-adversarial-review.sh"}]}]},"permissions":{"deny":[],"ask":["Bash(git push)"]}}' >"$tmp/dh/settings.json"
+doctor_case "doctor: deny が空の settings.json は NG" 1 "NG    settings.json の deny が空" "$tmp/dh"
+doctor_case "doctor: プロジェクトが無ければ NG" 1 "NG    ディレクトリが無い" "$home" "$tmp/no-such-dir"
+doctor_case "doctor: プロジェクトが空文字なら使い方で止まる" 2 "project-dir が空です" "$home" ""
+doctor_case "doctor: 引数が多ければ使い方で止まる" 2 "使い方" "$home" a b
+cp -R "$proj" "$tmp/proj-bad"; chmod -x "$tmp/proj-bad/.claude/hooks/verify-on-stop.sh"
+doctor_case "doctor: 検証ループのフックが実行できなければ NG" 1 "NG    .claude/hooks/verify-on-stop.sh が無い、または実行できない" "$home" "$tmp/proj-bad"
+cp -R "$proj" "$tmp/proj-ph"; echo '{{PROJECT_NAME}}' >>"$tmp/proj-ph/CLAUDE.md"
+doctor_case "doctor: {{PROJECT_NAME}} が残っていれば NG" 1 "NG    CLAUDE.md に {{PROJECT_NAME}} が残っている" "$home" "$tmp/proj-ph"
+cp -R "$proj" "$tmp/proj-gha"; echo 'use ${{ secrets.X }}' >>"$tmp/proj-gha/CLAUDE.md"
+doctor_case "doctor: GitHub Actions の式 {{ }} は誤検出しない" 0 "問題ありません" "$home" "$tmp/proj-gha"
+# CLAUDE_HOME が相対パスでも、ガードの確認が動く
+(cd "$tmp" && CLAUDE_HOME=claude-home bash "$BASE/scripts/doctor.sh" >/dev/null 2>&1) || ng "doctor: CLAUDE_HOME が相対パスだと失敗する"
 
 # --- init.sh lang (ベースのコピーで試す) ---
 cp -R "$BASE" "$tmp/base-copy"

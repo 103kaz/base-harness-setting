@@ -30,7 +30,7 @@ scripts/doctor.sh           導入の確認 (前提のコマンド、配布物�
 
 ## 前提
 
-macOS の bash 3.2 で開発と検証をしている。Linux では確かめていない。
+macOS の bash 3.2 で開発している。回帰テスト (`scripts/test-base.sh`) は CI で ubuntu と macOS の両方で流す。
 
 | コマンド | 要否 | 用途 |
 |---|---|---|
@@ -78,9 +78,11 @@ Claude Code のフックと settings の仕組みを使う。配布先の `~/.cl
 | GitHub の設定 | `gh api` の、リポジトリ本体・rulesets・vulnerability-alerts・actions/permissions などへの単独の呼び出し (経路ごとにメソッドとフィールドを絞る) |
 | terraform | `terraform apply` (保存した plan ファイルを指定する形のみ) |
 | 作業の破棄 | `git clean`、`reset --hard`、`restore`、`checkout --`、`stash drop`、`branch -D`。ビルド生成物でないディレクトリの `rm -r` |
-| マシンの設定 | `sudo`。`launchctl`、`crontab`、`defaults write` |
+| マシンの設定 | `sudo`。`launchctl` の `bootstrap` / `load` / `enable`。`crontab` (`-l` を除く)。`defaults write` / `delete` |
 | ハーネスの編集 | `.claude/hooks`、`.claude/verify.sh`、`.claude/settings*`、`.githooks`、`~/.claude` の Edit。`.github/workflows`、`firebase.json` の編集 |
 | MCP | 外部のリソースを消す・公開する・秘密を変えるツール。データベースを変更する SQL |
+
+「確認する」のうち、`git push`、`gh pr merge`、`gh workflow run`、`terraform apply`、ハーネスの Edit は `settings.json` の ask が確認の画面を出す。それ以外はガード (`guard-*.sh`) が出す。
 
 ガードは多層防御の 1 層で、サンドボックスではない。python などを経由した実行までは防げない。ガードを変えたら `user/hooks/test-guard.sh` にケースを足して通す。
 
