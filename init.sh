@@ -2,7 +2,7 @@
 # ベースのハーネス構成を配布する。引数なしで実行すると、対話式で設定する。
 #
 #   ./init.sh                                     対話式 (言語の追加、個人共通の配布、プロジェクトの雛形の配布をまとめて行う)
-#   ./init.sh user [--force]                      個人共通 (user/) を ~/.claude へ。環境変数 CLAUDE_HOME で置き場所を変えられる
+#   ./init.sh user [--force|--merge-settings]     個人共通 (user/) を ~/.claude へ (CLAUDE_HOME で置き場所を変える)。--merge-settings は既存の settings.json にフックと deny / ask を足す
 #   ./init.sh project <dir> [--name N] [--force]  プロジェクトの雛形 (project/) を <dir> へ
 #   ./init.sh lang <言語名> [--ext .xx] [--prefix XX]  言語別のレビュー観点の雛形をベースに作る
 #                                                 (user/skills/adversarial-review/checklists/languages/<言語名>.md)
@@ -14,6 +14,8 @@ set -euo pipefail
 BASE="$(cd "$(dirname "$0")" && pwd)"
 LANG_DIR="$BASE/user/skills/adversarial-review/checklists/languages"
 force=0
+merge_settings=0
+copy_skip=""   # copy_tree が配らない相対パス (統合した settings.json)
 created=()
 skipped=()
 
@@ -32,7 +34,7 @@ copy_file() {
   elif cmp -s "$src" "$dst"; then
     :
   elif [ "$force" = 1 ]; then
-    cp -p "$dst" "$dst.bak.$(date +%Y%m%d%H%M%S)"
+    cp -p "$dst" "$(backup_path "$dst")"
     cp -p "$src" "$dst"
     created+=("$dst (上書き)")
   else
@@ -43,6 +45,7 @@ copy_file() {
 copy_tree() {
   local src="$1" dst="$2" f
   while IFS= read -r f; do
+    [ "$f" != "$copy_skip" ] || continue
     copy_file "$src/$f" "$dst/$f"
   done < <(cd "$src" && find . -type f ! -name '.DS_Store' | sed 's#^\./##' | sort)
 }
@@ -61,13 +64,85 @@ report() {
 
 # --- 配布の本体 ---
 
+# backup_path <file>: 退避先の名前 (<file>.bak.<時刻>)。同じ秒に作った退避を上書きしないよう、あれば番号を付ける
+backup_path() {
+  local base="$1.bak.$(date +%Y%m%d%H%M%S)" b n=1
+  b="$base"
+  while [ -e "$b" ]; do b="$base.$n"; n=$((n + 1)); done
+  printf '%s' "$b"
+}
+
+# merge_settings_file <既存の settings.json> <ベースの settings.json>
+# 既存の設定を保ったまま、ベースのフック登録と permissions の deny / ask を足す (他のキーは触らない)。
+# フックは、同じイベントの同じ matcher に、同じスクリプト (guard-bash.sh など) を実行する command が登録済みなら足さない。
+# command の無いフック (prompt など) は数えない。deny / ask は無い項目だけを後ろに足す。整形は jq の形式 (インデント 2) になる。
+# 変えるときは、元を <file>.bak.<時刻> に残す。変わらなければ何もしない。失敗しても、既存の設定は変えない
+merge_settings_file() {
+  local cur="$1" base="$2" out err bak
+  command -v jq >/dev/null || { echo "  settings.json: jq が無いので統合できません (brew install jq)" >&2; return 1; }
+  jq -e 'type == "object"' "$cur" >/dev/null 2>&1 || { echo "  settings.json: $cur が JSON のオブジェクトとして読めないので統合できません。直してから流してください" >&2; return 1; }
+  out="$(mktemp)"
+  if ! err="$(jq --indent 2 --slurpfile b "$base" '
+    def cmd_of: ((.command? // "") | if type == "string" then . else "" end);
+    def scr: (capture("(?<n>[A-Za-z0-9_-]+\\.sh)") | .n) // "";
+    def runs($n): test("^(bash +|sh +)?\"?([^ \"]*/)?" + ($n | gsub("\\."; "\\.")) + "\"?( .*)?$");
+    def present($groups; $g):
+      ($g.matcher // "") as $m
+      | [ $g.hooks[]? | cmd_of | scr | select(. != "") ] as $names
+      | if ($names | length) == 0 then ($groups | index([$g])) != null
+        else $names | all(. as $n | [ $groups[]? | select((.matcher // "") == $m) | .hooks[]? | cmd_of | select(runs($n)) ] | length > 0)
+        end;
+    def add_missing($cur; $new): $cur + [ $new[] | select(present($cur; .) | not) ];
+    def union($a; $b): ($a // []) as $x | $x + [ ($b // [])[] | select(. as $i | $x | index($i) | not) ];
+    . as $e | $b[0] as $b
+    | .hooks = (($e.hooks // {}) as $eh
+        | reduce (($b.hooks // {}) | keys[]) as $ev ($eh; .[$ev] = add_missing(($eh[$ev] // []); $b.hooks[$ev])))
+    | .permissions.deny = union($e.permissions.deny; $b.permissions.deny)
+    | .permissions.ask = union($e.permissions.ask; $b.permissions.ask)
+  ' "$cur" 2>&1 >"$out")"; then
+    rm -f "$out"
+    echo "  settings.json: 構造が想定と違うため統合できません (hooks / permissions の形を確かめてください): $err" >&2
+    return 1
+  fi
+  if [ "$(jq -S . "$cur")" = "$(jq -S . "$out")" ]; then
+    echo "  settings.json: 統合済み (変更なし)"
+  else
+    bak="$(backup_path "$cur")"
+    cp -p "$cur" "$bak"
+    if ! cat "$out" >"$cur"; then
+      rm -f "$out"
+      if cmp -s "$bak" "$cur"; then rm -f "$bak"; echo "  settings.json: 書き込めませんでした (変更していません)" >&2
+      else echo "  settings.json: 書き込みに失敗しました。元は $bak にあります" >&2; fi
+      return 1
+    fi
+    echo "  settings.json: ガードのフック登録と deny / ask を足しました (元は $bak に残しました)"
+  fi
+  rm -f "$out"
+}
+
 do_user() {
-  local dst="${CLAUDE_HOME:-$HOME/.claude}"
+  local dst="${CLAUDE_HOME:-$HOME/.claude}" settings_skipped=0 merge_failed=0 f
   echo "個人共通を $dst へ配布します"
+  if [ "$merge_settings" = 1 ] && [ -f "$dst/settings.json" ] && ! cmp -s "$BASE/user/settings.json" "$dst/settings.json"; then
+    merge_settings_file "$dst/settings.json" "$BASE/user/settings.json" || merge_failed=1
+    copy_skip="settings.json"   # 統合を試みた settings.json は、--force でも上書きしない (失敗しても、ほかのファイルは配る)
+  fi
   copy_tree "$BASE/user" "$dst"
+  copy_skip=""
   chmod +x "$dst"/hooks/*.sh 2>/dev/null || true
+  for f in "${skipped[@]+"${skipped[@]}"}"; do [ "$f" != "$dst/settings.json" ] || settings_skipped=1; done
   report
+  if [ "$settings_skipped" = 1 ]; then
+    echo
+    echo "  注意: $dst/settings.json は内容が違うので skip しました。ガードのフック登録と deny / ask が入っていないため、ガードは働きません。"
+    echo "        既存の設定を保ったまま足すには: ./init.sh user --merge-settings (元は settings.json.bak.<時刻> に残る)"
+  fi
   echo "確認: bash $dst/hooks/test-guard.sh"
+  echo "確認: ${CLAUDE_HOME:+CLAUDE_HOME=$CLAUDE_HOME }bash $BASE/scripts/doctor.sh  (フックの登録とガードの動きまで確かめる)"
+  if [ "$merge_failed" = 1 ]; then
+    echo "  settings.json の統合に失敗しました。そのほかのファイルは配布しました。上のメッセージを見て settings.json を直し、もう一度 ./init.sh user --merge-settings を流してください。" >&2
+    return 1
+  fi
 }
 
 # do_project <dir> <name>
@@ -93,6 +168,7 @@ do_project() {
   2. $target/.claude/verify.sh に、このプロジェクトの lint・テスト・ビルドを書く
   3. $target/.claude/review/checklist.md の領域の索引を、プロジェクトに合わせて直す
   4. git リポジトリなら有効にする: git -C "$target" config core.hooksPath .githooks
+  5. 確かめる: bash $BASE/scripts/doctor.sh "$target"
 EOF
 }
 
@@ -134,6 +210,7 @@ cmd_user() {
   while [ $# -gt 0 ]; do
     case "$1" in
       --force) force=1 ;;
+      --merge-settings) merge_settings=1 ;;
       *) usage ;;
     esac
     shift
@@ -155,7 +232,7 @@ cmd_project() {
     shift
   done
   do_project "$target" "$name"
-  echo "  5. 個人共通 (~/.claude) が未配布なら: ./init.sh user"
+  echo "  6. 個人共通 (~/.claude) が未配布なら: ./init.sh user (その後に 5 を流す)"
 }
 
 cmd_lang() {
@@ -215,7 +292,7 @@ confirm() {
 }
 
 interactive() {
-  local langs_new=() do_u=0 do_p=0 target="" pname="" lang ext prefix existing plan
+  local langs_new=() do_u=0 do_p=0 user_failed=0 target="" pname="" lang ext prefix existing plan
 
   echo "ベースのハーネス構成を設定します。空 Enter は [ ] の中の既定値です。"
   echo
@@ -247,6 +324,11 @@ interactive() {
   # 2. 個人共通
   echo "[2/3] 個人共通 (ハーネスのフック・スキル・CLAUDE.md・settings)"
   if confirm "  ${CLAUDE_HOME:-$HOME/.claude} へ配布しますか?" y; then do_u=1; fi
+  if [ "$do_u" = 1 ] && [ -f "${CLAUDE_HOME:-$HOME/.claude}/settings.json" ] \
+     && ! cmp -s "$BASE/user/settings.json" "${CLAUDE_HOME:-$HOME/.claude}/settings.json"; then
+    echo "  既存の settings.json があります。統合しないと、ガードのフックが登録されず、ガードは働きません。"
+    if confirm "  既存の settings.json にフックの登録と deny / ask を足しますか? (他の設定は変えず、元は .bak に残します)" y; then merge_settings=1; fi
+  fi
   echo
 
   # 3. プロジェクト
@@ -277,6 +359,7 @@ interactive() {
   plan="実行する内容:"
   for l in "${langs_new[@]+"${langs_new[@]}"}"; do plan+=$'\n'"  - 言語の観点を作る: ${l%%|*}"; done
   if [ "$do_u" = 1 ]; then plan+=$'\n'"  - 個人共通を配布: ${CLAUDE_HOME:-$HOME/.claude}"; fi
+  if [ "$merge_settings" = 1 ]; then plan+=$'\n'"  - 既存の settings.json にフックの登録と deny / ask を足す"; fi
   if [ "$do_p" = 1 ]; then plan+=$'\n'"  - プロジェクトの雛形を配布: $target (名前: $pname)"; fi
   if [ "$force" = 1 ]; then plan+=$'\n'"  - 既存ファイルは上書き (.bak を残す)"; fi
   echo "$plan"
@@ -288,13 +371,14 @@ interactive() {
     IFS='|' read -r lang ext prefix <<<"$l"
     do_lang "$lang" "$ext" "$prefix"
   done
-  if [ "$do_u" = 1 ]; then do_user; echo; fi
+  if [ "$do_u" = 1 ]; then do_user || user_failed=1; echo; fi
   if [ "$do_p" = 1 ]; then do_project "$target" "$pname"; echo; fi
 
   if [ "${#langs_new[@]}" -gt 0 ]; then
     echo "言語の観点ファイルは雛形のままです。観点を書いてください (1 ファイル約 14KB まで)。"
     if [ "$do_u" = 0 ]; then echo "~/.claude に反映するには: ./init.sh user"; fi
   fi
+  return "$user_failed"
 }
 
 # --- 入口 ---

@@ -33,7 +33,13 @@
 ```
 
 既存のファイルは上書きしない。内容が違うものは `skip` と表示される。`--force` で上書きする (元のファイルは `.bak.<時刻>` に残る)。
-`user` は `~/.claude/settings.json` が既にあると skip するので、差分を見て手で取り込む。
+`user` は、`~/.claude/settings.json` が既にあって内容が違うと skip する。そのままではガードのフックが登録されず、ガードは働かない (`doctor.sh` が NG にする)。既存の設定を保ったまま、フックの登録と deny / ask だけを足すには、次を流す。
+
+```bash
+./init.sh user --merge-settings
+```
+
+足すのは `hooks` (同じイベントの同じ matcher に、そのスクリプトを実行する command が登録済みなら足さない) と `permissions` の `deny` / `ask` だけで、他のキーは変えない。元は `settings.json.bak.<時刻>` に残る (同じ秒の連続実行でも上書きしない)。2 回流しても同じ結果になる。整形は `jq` の形式 (インデント 2) になる。`settings.json` の構造が想定と違って統合できないときは、原因を表示して、ほかのファイルは配り、終了コード 1 で終わる。`jq` が要る。対話式の `./init.sh` は、既存の `settings.json` があると統合するかを聞く。
 
 ## 2. `CLAUDE.md` を埋める
 
