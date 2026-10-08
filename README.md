@@ -33,7 +33,7 @@ macOS の bash 3.2 で開発と検証をしている。Linux では確かめて�
 | コマンド | 要否 | 用途 |
 |---|---|---|
 | bash、git | 必須 | フック、`init.sh`、pre-push |
-| jq | 必須 | ガードが Claude Code から渡される JSON を読む。無いとガードは何も止めない (コマンドが空と判定され、そのまま通る) |
+| jq | 必須 | ガードが Claude Code から渡される JSON を読む。無いと、ガードは Bash と MCP の操作をすべて止める (理由と `brew install jq` を表示する) |
 | gitleaks | pre-push を使うなら必須 | push するコミットの検査。無いと push を止める (`brew install gitleaks`) |
 | gh | GitHub を使うなら | PR、レビューコメント対応、ガードの `gh` の判定 |
 | terraform | 任意 | `.tf` の編集後の `terraform fmt`、`terraform` 操作のガード。無ければ fmt は何もしない |
