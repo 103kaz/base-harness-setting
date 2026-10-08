@@ -22,6 +22,8 @@ project/    プロジェクトの雛形 (新規プロジェクトのルートに
 templates/                  言語別の観点の雛形 (`./init.sh lang` が使う)
 scripts/test-base.sh        init.sh・検証ループ・pre-push の回帰テスト
 scripts/check-sync.sh       ~/.claude とこのベースの user/ (フック・スキル) が一致しているかの確認
+scripts/doctor.sh           導入の確認 (前提のコマンド、配布物、ガードの実際の動き、プロジェクトの雛形)
+.github/workflows/test.yml  scripts/test-base.sh を ubuntu と macOS で流す
 ```
 
 ルートの `CLAUDE.md`・`.claude/`・`.githooks/` は、このリポジトリ自身の開発に使う設定 (雛形を自分自身に入れたもの)。配布物ではない。
@@ -42,7 +44,7 @@ Claude Code のフックと settings の仕組みを使う。配布先の `~/.cl
 
 ## セットアップ
 
-配布の方法 (`./init.sh`) と、雛形を入れた後に新しいプロジェクトで最初にやることは [SETUP.md](SETUP.md) にある。
+配布の方法 (`./init.sh`) と、雛形を入れた後に新しいプロジェクトで最初にやることは [SETUP.md](SETUP.md) にある。入れた後は `bash scripts/doctor.sh <project-dir>` で確かめる (SETUP.md の 6)。自分向けに変える範囲と、ベースを更新したときの取り込み方も SETUP.md に書いてある。
 
 ## ループ
 

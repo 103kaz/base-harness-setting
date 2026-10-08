@@ -76,6 +76,16 @@ expect "guard-bash.sh が配布される" test -f "$home/hooks/guard-bash.sh"
 expect "skills が配布される" test -f "$home/skills/adversarial-review/SKILL.md"
 expect "配布した test-guard.sh が通る" bash "$home/hooks/test-guard.sh"
 
+# --- scripts/doctor.sh ---
+expect "doctor: 配布直後の個人共通とプロジェクトが通る" env CLAUDE_HOME="$home" bash "$BASE/scripts/doctor.sh" "$proj"
+cp -R "$home" "$tmp/doctor-home"
+rm "$tmp/doctor-home/hooks/guard-bash.sh"
+expect "doctor: ガードのファイルが無ければ NG" bash -c "! CLAUDE_HOME='$tmp/doctor-home' bash '$BASE/scripts/doctor.sh'"
+printf '#!/bin/bash\nexit 0\n' >"$tmp/doctor-home/hooks/guard-bash.sh"
+expect "doctor: 何も止めないガードは NG" bash -c "! CLAUDE_HOME='$tmp/doctor-home' bash '$BASE/scripts/doctor.sh'"
+expect "doctor: プロジェクトが無ければ NG" bash -c "! CLAUDE_HOME='$home' bash '$BASE/scripts/doctor.sh' '$tmp/no-such-dir'"
+expect "doctor: 雛形のままの verify.sh は warn で止めない" bash -c "CLAUDE_HOME='$home' bash '$BASE/scripts/doctor.sh' '$proj' | grep -q 'warn  .claude/verify.sh が雛形のまま'"
+
 # --- init.sh lang (ベースのコピーで試す) ---
 cp -R "$BASE" "$tmp/base-copy"
 lc="$tmp/base-copy"
