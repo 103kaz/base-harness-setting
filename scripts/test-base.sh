@@ -80,7 +80,10 @@ expect "配布した test-guard.sh が通る" bash "$home/hooks/test-guard.sh"
 doctor_case() { # doctor_case <説明> <期待する終了コード> <出力に含まれる語> <CLAUDE_HOME> [引数...]。終了コードだけでなく理由まで確かめる
   local desc="$1" want="$2" pat="$3" ch="$4" out rc; shift 4
   out="$(CLAUDE_HOME="$ch" bash "$BASE/scripts/doctor.sh" "$@" 2>&1)"; rc=$?
-  { [ "$rc" = "$want" ] && grep -qF -- "$pat" <<<"$out"; } || ng "$desc (終了コード $rc)"
+  if ! { [ "$rc" = "$want" ] && grep -qF -- "$pat" <<<"$out"; }; then
+    ng "$desc (終了コード $rc。期待は $want、出力に「$pat」)"
+    sed 's/^/    | /' <<<"$out"   # 何が出たかが分からないと、環境ごとの違いを調べられない
+  fi
 }
 dh() { rm -rf "$tmp/dh"; cp -R "$home" "$tmp/dh"; } # 配布直後の個人共通を壊す前の状態に戻す
 doctor_case "doctor: 配布直後の個人共通とプロジェクトが通る" 0 "問題ありません" "$home" "$proj"
