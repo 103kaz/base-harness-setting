@@ -7,6 +7,13 @@
 # 変更したら ~/.claude/hooks/test-guard.sh にケースを追加して通すこと。
 set -uo pipefail
 
+# jq が無いとツール名を読めず、何も確認しないまま通ってしまう。入れてもらうまで、すべて止める
+if ! command -v jq >/dev/null; then
+  echo "BLOCKED by ~/.claude/hooks/guard-mcp.sh: jq が見つかりません。ガードが MCP ツールの呼び出しを読めないため、すべて止めます。" >&2
+  echo "jq を入れてください (macOS: brew install jq)。" >&2
+  exit 2
+fi
+
 input="$(cat)"
 tool="$(jq -r '.tool_name // ""' <<<"$input")"
 name="${tool##*__}"

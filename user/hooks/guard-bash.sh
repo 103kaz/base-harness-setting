@@ -7,6 +7,13 @@
 # 変更したら ~/.claude/hooks/test-guard.sh にケースを追加して通すこと。
 set -uo pipefail
 
+# jq が無いとコマンドを読めず、何も止めないまま通ってしまう。入れてもらうまで、すべて止める
+if ! command -v jq >/dev/null; then
+  echo "BLOCKED by ~/.claude/hooks/guard-bash.sh: jq が見つかりません。ガードが Bash のコマンドを読めないため、すべて止めます。" >&2
+  echo "jq を入れてください (macOS: brew install jq)。" >&2
+  exit 2
+fi
+
 cmd="$(jq -r '.tool_input.command // ""')"
 
 block() {
