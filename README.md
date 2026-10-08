@@ -4,27 +4,15 @@
 
 ## 構成
 
-```
-user/       個人共通 (~/.claude に入れるもの)
-  CLAUDE.md                個人共通ルール
-  settings.json            機密ファイルの deny、push・マージ・apply の ask、フックの登録
-  hooks/                   guard-bash.sh・guard-mcp.sh (+ test-guard.sh)、remind-adversarial-review.sh、fmt-terraform.sh
-  skills/                  adversarial-review (共通・言語別の観点つき)、doc-code-consistency
-                           言語別の観点: swift、python、typescript、shell、php、go、ruby (adversarial-review/checklists/languages/)
-project/    プロジェクトの雛形 (新規プロジェクトのルートに入れるもの)
-  CLAUDE.md                コマンド・構成・ループの運用の雛形
-  .claude/settings.json    検証ループのフック (UserPromptSubmit と Stop) の登録
-  .claude/verify.sh        検証コマンドを書く場所 (観点のリストの大きさの検査つき)
-  .claude/hooks/           verify-on-stop.sh
-  .claude/commands/        /review-loop、/retro、/address-comments
-  .claude/review/checklist.md   プロジェクト固有の観点
-  .githooks/pre-push       push するコミットの範囲を gitleaks git --redact で検査
-templates/                  言語別の観点の雛形 (`./init.sh lang` が使う)
-scripts/test-base.sh        init.sh・検証ループ・pre-push の回帰テスト
-scripts/check-sync.sh       ~/.claude とこのベースの user/ (フック・スキル) が一致しているかの確認
-scripts/doctor.sh           導入の確認 (前提のコマンド、配布物、ガードの実際の動き、プロジェクトの雛形)
-.github/workflows/test.yml  scripts/test-base.sh を ubuntu で流す (macOS は手元で流す)
-```
+| 場所 | 入れる先 | 中身 |
+|---|---|---|
+| `user/` | `~/.claude` | 個人共通のルール (`CLAUDE.md`)、`settings.json` (deny / ask とフックの登録)、ガードなどのフック、スキル (`adversarial-review` と言語別の観点、`doc-code-consistency`) |
+| `project/` | 新規プロジェクトのルート | `CLAUDE.md` の雛形、検証ループ (`.claude/settings.json`・`verify.sh`・`hooks/`)、コマンド (`/review-loop`・`/retro`・`/address-comments`)、プロジェクト固有の観点、pre-push |
+| `templates/` | `./init.sh lang` が使う | 言語別の観点の雛形 |
+| `scripts/` | このリポジトリ内で使う | `test-base.sh` (回帰テスト)、`check-sync.sh` (`~/.claude` と `user/` の一致)、`doctor.sh` (導入の確認) |
+| `.github/workflows/test.yml` | このリポジトリの CI | `test-base.sh` を ubuntu で流す (macOS は手元で流す) |
+
+ファイル単位の説明は、各ファイルの冒頭のコメントにある。同梱している言語の観点は `user/skills/adversarial-review/checklists/languages/` にある。
 
 ルートの `CLAUDE.md`・`.claude/`・`.githooks/` は、このリポジトリ自身の開発に使う設定 (雛形を自分自身に入れたもの)。配布物ではない。
 
@@ -126,7 +114,7 @@ Claude Code のフックと settings の仕組みを使う。配布先の `~/.cl
 - ID は言語ごとの接頭辞 + 連番 (`GO-01`、`RB-01` など)。
 - 観点は、言語やその標準ライブラリ、実行環境に固有のものだけを書く。言語に依存しないものは `common.md` に、そのプロジェクトの仕様に依存するものはプロジェクトの `.claude/review/checklist.md` に置く。
 - 1 ファイルは約 14KB までにする。毎回読み込まれるので、超えたら統合・削除する。
-- `~/.claude` の側で作ったファイルをベースに戻したいときは、`user/skills/adversarial-review/checklists/languages/` にコピーして、README の構成の一覧に言語名を足す。
+- `~/.claude` の側で作ったファイルをベースに戻したいときは、`user/skills/adversarial-review/checklists/languages/` にコピーする。
 
 ## このベース自体を変えるとき
 
