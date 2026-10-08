@@ -46,13 +46,18 @@ if [ ! -f "$settings" ]; then
 elif ! command -v jq >/dev/null || ! jq -e . "$settings" >/dev/null 2>&1; then
   ng "settings.json が JSON として読めない (または jq が無い)"
 else
-  hooked() { jq -e --arg ev "$1" --arg h "$2" '[.hooks[$ev][]?.hooks[]?.command] | any(contains($h))' "$settings" >/dev/null 2>&1; }
-  hooked PreToolUse guard-bash.sh && ok "settings.json が PreToolUse に guard-bash.sh を登録している" \
-    || ng "settings.json が PreToolUse に guard-bash.sh を登録していない。user/settings.json の hooks を取り込む"
-  hooked PreToolUse guard-mcp.sh && ok "settings.json が PreToolUse に guard-mcp.sh を登録している" \
-    || ng "settings.json が PreToolUse に guard-mcp.sh を登録していない。user/settings.json の hooks を取り込む"
-  hooked UserPromptSubmit remind-adversarial-review.sh && ok "settings.json が UserPromptSubmit に remind-adversarial-review.sh を登録している" \
-    || ng "settings.json が UserPromptSubmit に remind-adversarial-review.sh を登録していない"
+  # 登録済みとみなすのは、同じイベントの同じ matcher に、そのスクリプトを実行する command があるとき (名前が文字列に入るだけでは数えない)
+  hooked() { # hooked <イベント> <スクリプト名> <matcher>
+    jq -e --arg ev "$1" --arg n "$2" --arg m "$3" '
+      [ .hooks[$ev][]? | select((.matcher // "") == $m) | .hooks[]? | (.command? // "") | select(type == "string")
+        | select(test("^(bash +|sh +)?\"?([^ \"]*/)?" + ($n | gsub("\\."; "\\.")) + "\"?( .*)?$")) ] | length > 0' "$settings" >/dev/null 2>&1
+  }
+  hooked PreToolUse guard-bash.sh Bash && ok "settings.json が PreToolUse (Bash) に guard-bash.sh を登録している" \
+    || ng "settings.json が PreToolUse (matcher: Bash) に guard-bash.sh を登録していない。./init.sh user --merge-settings で足す"
+  hooked PreToolUse guard-mcp.sh 'mcp__.*' && ok "settings.json が PreToolUse (mcp__.*) に guard-mcp.sh を登録している" \
+    || ng "settings.json が PreToolUse (matcher: mcp__.*) に guard-mcp.sh を登録していない。./init.sh user --merge-settings で足す"
+  hooked UserPromptSubmit remind-adversarial-review.sh '' && ok "settings.json が UserPromptSubmit に remind-adversarial-review.sh を登録している" \
+    || ng "settings.json が UserPromptSubmit に remind-adversarial-review.sh を登録していない。./init.sh user --merge-settings で足す"
   if jq -e '(.permissions.deny | length) > 0' "$settings" >/dev/null 2>&1; then ok "settings.json の deny に項目がある"
   else ng "settings.json の deny が空 (機密ファイルを読める)"; fi
   if jq -e '.permissions.ask | index("Bash(git push)") != null' "$settings" >/dev/null 2>&1; then ok "settings.json の ask に git push がある"

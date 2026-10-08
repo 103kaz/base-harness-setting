@@ -85,7 +85,7 @@ out="$(CLAUDE_HOME="$sh_home" "$BASE/init.sh" user 2>&1)"
 expect "既存の settings.json は、統合しないと上書きされない" cmp -s "$tmp/settings-orig.json" "$sh_home/settings.json"
 expect "skip したとき、ガードが働かないことと --merge-settings を案内する" bash -c "grep -q 'ガードは働きません' <<<'$out' && grep -q -- '--merge-settings' <<<'$out'"
 expect "配布の最後に doctor.sh を案内する" bash -c "grep -q 'scripts/doctor.sh' <<<'$out'"
-expect "doctor: 統合前の settings.json は NG" bash -c "CLAUDE_HOME='$sh_home' bash '$BASE/scripts/doctor.sh' 2>&1 | grep -q 'NG    settings.json が PreToolUse に guard-bash.sh を登録していない'"
+expect "doctor: 統合前の settings.json は NG" bash -c "CLAUDE_HOME='$sh_home' bash '$BASE/scripts/doctor.sh' 2>&1 | grep -q 'NG    settings.json が PreToolUse (matcher: Bash) に guard-bash.sh を登録していない'"
 CLAUDE_HOME="$sh_home" "$BASE/init.sh" user --merge-settings >/dev/null 2>&1 || ng "init.sh user --merge-settings が失敗"
 expect "統合: 既存のキーが残る" jq -e '.model == "opus" and .env.A == "1" and .permissions.allow == ["Bash(ls)"]' "$sh_home/settings.json"
 expect "統合: 既存の deny が先頭に残り、ベースの deny が足される" jq -e '.permissions.deny[0] == "Read(foo)" and (.permissions.deny | length) > 5' "$sh_home/settings.json"
@@ -111,6 +111,42 @@ expect "統合: 壊れた settings.json は変えない" grep -qx '{broken' "$sh
 sh4="$tmp/settings-home4"; mkdir -p "$sh4"; cp "$tmp/settings-orig.json" "$sh4/settings.json"
 printf 'n\ny\ny\nn\nn\ny\n' | CLAUDE_HOME="$sh4" "$BASE/init.sh" >/dev/null 2>&1
 expect "対話式: 統合に y と答えると settings.json に足される" jq -e '[.hooks.PreToolUse[].hooks[].command] | any(contains("guard-bash.sh"))' "$sh4/settings.json"
+
+# 統合の判定: command の無いフック、別の matcher、名前が文字列に入るだけの command があっても、ガードを足す
+merge_case() { # merge_case <名前> <既存の settings.json の中身>。CLAUDE_HOME を $tmp/mc-<名前> にして統合する
+  mkdir -p "$tmp/mc-$1"; printf '%s' "$2" >"$tmp/mc-$1/settings.json"
+  CLAUDE_HOME="$tmp/mc-$1" "$BASE/init.sh" user --merge-settings >/dev/null 2>&1
+}
+merge_case prompt '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"prompt","prompt":"x"}]}]}}'
+expect "統合: command の無いフック (prompt) があっても統合できる" jq -e '[.hooks.PreToolUse[].hooks[].command?] | any(. != null and contains("guard-bash.sh"))' "$tmp/mc-prompt/settings.json"
+expect "統合: command の無いフックは残る" jq -e '[.hooks.PreToolUse[].hooks[].type] | index("prompt") != null' "$tmp/mc-prompt/settings.json"
+merge_case matcher '{"hooks":{"PreToolUse":[{"matcher":"Write","hooks":[{"type":"command","command":"bash ~/.claude/hooks/guard-bash.sh"}]}]}}'
+expect "統合: 別の matcher (Write) に登録済みでも、Bash 用のガードを足す" jq -e '[.hooks.PreToolUse[] | select(.matcher == "Bash") | .hooks[].command] | any(contains("guard-bash.sh"))' "$tmp/mc-matcher/settings.json"
+merge_case echo '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"echo guard-bash.sh # disabled"}]}]}}'
+expect "統合: 名前が文字列に入るだけの command (echo) では、登録済みとみなさない" jq -e '[.hooks.PreToolUse[].hooks[].command | select(startswith("bash "))] | any(contains("guard-bash.sh"))' "$tmp/mc-echo/settings.json"
+mkdir -p "$tmp/mc-wm"; echo '{"hooks":{"PreToolUse":[{"matcher":"Write","hooks":[{"type":"command","command":"bash ~/.claude/hooks/guard-bash.sh"}]}]}}' >"$tmp/mc-wm/settings.json"
+expect "doctor: 別の matcher にだけ登録された guard-bash.sh は NG" bash -c "CLAUDE_HOME='$tmp/mc-wm' bash '$BASE/scripts/doctor.sh' 2>&1 | grep -q 'NG    settings.json が PreToolUse (matcher: Bash) に guard-bash.sh を登録していない'"
+# 構造が想定外の settings.json: 統合は失敗するが、ほかのファイルは配り、既存の設定は変えない
+for bad in '{"permissions":"x"}' '{"permissions":{"deny":"Read(x)"}}' '{"hooks":{"PreToolUse":"x"}}' '[]'; do
+  rm -rf "$tmp/mc-bad"; mkdir -p "$tmp/mc-bad"; printf '%s' "$bad" >"$tmp/mc-bad/settings.json"
+  CLAUDE_HOME="$tmp/mc-bad" "$BASE/init.sh" user --merge-settings >/dev/null 2>&1; rc=$?
+  [ "$rc" != 0 ] || ng "統合: 想定外の構造 $bad で失敗を返さない"
+  expect "統合: 想定外の構造 $bad でも、ほかのファイルは配る" test -f "$tmp/mc-bad/hooks/guard-bash.sh"
+  expect "統合: 想定外の構造 $bad の settings.json は変えない" bash -c "[ \"\$(cat '$tmp/mc-bad/settings.json')\" = '$bad' ]"
+done
+# 退避ファイルは、同じ秒の連続実行でも上書きしない
+rm -rf "$tmp/mc-bak"; mkdir -p "$tmp/mc-bak"; echo '{"model":"a"}' >"$tmp/mc-bak/settings.json"
+CLAUDE_HOME="$tmp/mc-bak" "$BASE/init.sh" user --merge-settings >/dev/null 2>&1
+jq '.permissions.deny |= map(select(. != "Read(**/*.pem)"))' "$tmp/mc-bak/settings.json" >"$tmp/mc-bak/x" && mv "$tmp/mc-bak/x" "$tmp/mc-bak/settings.json"
+CLAUDE_HOME="$tmp/mc-bak" "$BASE/init.sh" user --merge-settings >/dev/null 2>&1
+expect "統合: 続けて統合しても、退避ファイルを上書きしない" bash -c "[ \$(ls '$tmp/mc-bak'/settings.json.bak.* | wc -l) = 2 ] && grep -q '\"model\":\"a\"' '$tmp/mc-bak'/settings.json.bak.*"
+# 書き込めない settings.json は、変えずに失敗し、退避ファイルを残さない
+rm -rf "$tmp/mc-ro"; mkdir -p "$tmp/mc-ro"; echo '{"model":"a"}' >"$tmp/mc-ro/settings.json"; chmod 444 "$tmp/mc-ro/settings.json"
+if [ "$(id -u)" != 0 ]; then
+  CLAUDE_HOME="$tmp/mc-ro" "$BASE/init.sh" user --merge-settings >/dev/null 2>&1; [ $? != 0 ] || ng "統合: 書き込めない settings.json で失敗を返さない"
+  expect "統合: 書き込めない settings.json は変わらず、退避ファイルも残らない" bash -c "grep -q '\"model\":\"a\"' '$tmp/mc-ro/settings.json' && ! ls '$tmp/mc-ro'/settings.json.bak.* >/dev/null 2>&1"
+fi
+chmod 644 "$tmp/mc-ro/settings.json"
 
 # --- init.sh project: 最後に doctor.sh を案内する ---
 expect "project の案内に doctor.sh が入る" bash -c "'$BASE/init.sh' project '$tmp/doc-hint' --name h 2>&1 | grep -q 'scripts/doctor.sh'"
@@ -139,8 +175,8 @@ doctor_case "doctor: 何でも止めるガードは NG" 1 "NG    ガード: 普�
 dh; echo '{"//":"guard-bash.sh guard-mcp.sh remind-adversarial-review.sh","deny":[]' >"$tmp/dh/settings.json"
 doctor_case "doctor: 壊れた settings.json は NG (語があるだけでは ok にしない)" 1 "NG    settings.json が JSON として読めない" "$tmp/dh"
 dh; echo '{"permissions":{"deny":["Read(x)"],"ask":["Bash(git push)"]}}' >"$tmp/dh/settings.json"
-doctor_case "doctor: フックの登録が無い settings.json は NG" 1 "NG    settings.json が PreToolUse に guard-bash.sh を登録していない" "$tmp/dh"
-dh; echo '{"hooks":{"PreToolUse":[{"hooks":[{"command":"guard-bash.sh guard-mcp.sh"}]}],"UserPromptSubmit":[{"hooks":[{"command":"remind-adversarial-review.sh"}]}]},"permissions":{"deny":[],"ask":["Bash(git push)"]}}' >"$tmp/dh/settings.json"
+doctor_case "doctor: フックの登録が無い settings.json は NG" 1 "NG    settings.json が PreToolUse (matcher: Bash) に guard-bash.sh を登録していない" "$tmp/dh"
+dh; echo '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"command":"bash $HOME/.claude/hooks/guard-bash.sh"}]},{"matcher":"mcp__.*","hooks":[{"command":"bash $HOME/.claude/hooks/guard-mcp.sh"}]}],"UserPromptSubmit":[{"hooks":[{"command":"bash $HOME/.claude/hooks/remind-adversarial-review.sh"}]}]},"permissions":{"deny":[],"ask":["Bash(git push)"]}}' >"$tmp/dh/settings.json"
 doctor_case "doctor: deny が空の settings.json は NG" 1 "NG    settings.json の deny が空" "$tmp/dh"
 doctor_case "doctor: プロジェクトが無ければ NG" 1 "NG    ディレクトリが無い" "$home" "$tmp/no-such-dir"
 doctor_case "doctor: プロジェクトが空文字なら使い方で止まる" 2 "project-dir が空です" "$home" ""

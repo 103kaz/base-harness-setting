@@ -39,7 +39,7 @@
 ./init.sh user --merge-settings
 ```
 
-足すのは `hooks` (同じイベントに同じスクリプト名が登録済みなら足さない) と `permissions` の `deny` / `ask` だけで、他のキーは変えない。元は `settings.json.bak.<時刻>` に残る。2 回流しても同じ結果になる。`jq` が要る。対話式の `./init.sh` は、既存の `settings.json` があると統合するかを聞く。
+足すのは `hooks` (同じイベントの同じ matcher に、そのスクリプトを実行する command が登録済みなら足さない) と `permissions` の `deny` / `ask` だけで、他のキーは変えない。元は `settings.json.bak.<時刻>` に残る (同じ秒の連続実行でも上書きしない)。2 回流しても同じ結果になる。整形は `jq` の形式 (インデント 2) になる。`settings.json` の構造が想定と違って統合できないときは、原因を表示して、ほかのファイルは配り、終了コード 1 で終わる。`jq` が要る。対話式の `./init.sh` は、既存の `settings.json` があると統合するかを聞く。
 
 ## 2. `CLAUDE.md` を埋める
 
