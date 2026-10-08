@@ -111,7 +111,7 @@ fi
 
 # Cloudflare (wrangler): Git を通さない本番デプロイと、リソース・シークレットの削除/変更は人間が行う
 if grep -Eq "${P}wrangler([[:space:]]+-[^[:space:]]+)*[[:space:]]+(deploy|publish|delete|rollback|versions[[:space:]]+deploy|pages[[:space:]]+(deploy|publish)|pages[[:space:]]+(project|deployment)[[:space:]]+delete|(r2|kv|d1|queues|vectorize|hyperdrive)([[:space:]]+[^|;&[:space:]]+)*[[:space:]]+delete|secret[[:space:]]+(put|delete|bulk))([[:space:]\"']|$)" <<<"$cmd"; then
-  block "wrangler の deploy / delete / secret 変更は禁止 (本番は main へのマージで Cloudflare Pages が行う)"
+  block "wrangler の deploy / delete / secret 変更は禁止 (Git を通さないデプロイと、リソース・シークレットの変更は人間が行う)"
 fi
 
 # --- ハーネス自体の改変 (ガードの無効化) ---

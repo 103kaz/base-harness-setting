@@ -26,17 +26,17 @@
 ## Apple のフレームワーク
 
 ### SW-05 許可 (HealthKit、位置情報、モーション) の順序と取り消し
-- 観点: 許可を求める前に状態を読んでいないか (HealthKit の `authorizationStatus` を `requestAuthorization` の前に呼ぶと、シミュレータで止まることがある)。使っている途中で許可を取り消されたとき、記録が黙って止まらないか。許可のダイアログが、画面を消した後やカウントダウンの後に出ないか。許可の回答待ちが `withCheckedContinuation` のとき、回答しないままキャンセルされても、continuation を再開して抜けられるか (共通 C-19)
+- 観点: 許可を求める前に状態を読んでいないか (HealthKit の `authorizationStatus` を `requestAuthorization` の前に呼ぶと、シミュレータで止まることがある)。使っている途中で許可を取り消されたとき、処理が黙って止まらないか。許可のダイアログが、画面を消した後や、別の操作の後に出ないか。許可の回答待ちが `withCheckedContinuation` のとき、回答しないままキャンセルされても、continuation を再開して抜けられるか (共通 C-19)
 - 確かめ方: 許可が「未決定」「拒否」「途中で取り消し」の 3 通りで流れを追う
 
 ### SW-06 位置情報の精度
 - 観点: 「正確な位置情報」がオフ (`accuracyAuthorization == .reducedAccuracy`) のとき、位置から計算する値が 0 になるなど黙っておかしくならないか。位置の飛び・ふらつき・精度の悪い点を除いているか
 - 確かめ方: 精度の悪い点、飛んだ点、止まっていてふらつく点の列を入れる
 
-### SW-07 HealthKit の保存
-- 観点: 記録本体 (`HKWorkout` など) と付随するデータ (サンプル、ルート) を別々に保存して、途中で失敗するとやり直せなくならないか。`HKWorkoutBuilder.seriesBuilder(for:)` でルートを作れば、`finishWorkout` で一緒に保存される。失敗したら `discardWorkout` で捨てる
+### SW-07 親のデータと付随データの保存 (HealthKit の例)
+- 観点: 親のデータ (`HKWorkout` など) と付随するデータ (サンプル、ルート) を別々に保存して、途中で失敗するとやり直せなくならないか。`HKWorkoutBuilder.seriesBuilder(for:)` でルートを作れば、`finishWorkout` で一緒に保存される。失敗したら `discardWorkout` で捨てる
 - 確かめ方: 各保存の直後で失敗した場合の、ヘルスケアの中身と、やり直したときの結果を書き出す
-- 追加の観点: 記録に重複を防ぐ識別子 (`HKMetadataKeySyncIdentifier` と `HKMetadataKeySyncVersion`) を付けているか。保存後に落ちて再保存したとき、同じ記録が 2 件になる
+- 追加の観点: 保存するデータに重複を防ぐ識別子 (`HKMetadataKeySyncIdentifier` と `HKMetadataKeySyncVersion`) を付けているか。保存後に落ちて再保存したとき、同じデータが 2 件になる
 
 ### SW-09 標準のダイアログを自前の覆いに置き換えたとき
 - 観点: `confirmationDialog` や `alert` を overlay などの自前の画面に置き換えると、標準のものがしていたことが抜ける。VoiceOver で後ろの要素に届かないこと (`.accessibilityElement(children: .contain)` と `.isModal`)、escape (二本指の Z) で閉じられること、開いたときに読み上げの位置が移ること、ほかの overlay (通知のバナーなど) より手前に出ること
@@ -45,7 +45,7 @@
 
 ### SW-08 バックグラウンドと画面を消した後
 - 観点: 画面を消した直後の保存やネットワークが、アプリの停止で途中で切れないか (`beginBackgroundTask`)。バックグラウンドで続ける処理に要る `UIBackgroundModes` があるか
-- 確かめ方: 「終了を押してすぐ画面を消す」「記録中にロックする」の流れを追う。実機でしか確かめられないものは、確かめていないと報告に書く
+- 確かめ方: 「保存の操作の直後に画面を消す」「処理の途中でロックする」の流れを追う。実機でしか確かめられないものは、確かめていないと報告に書く
 
 ### SW-10 プライバシーマニフェスト
 - 観点: App Store に出すアプリに `PrivacyInfo.xcprivacy` があり、使っている必須理由 API (UserDefaults、ファイルのタイムスタンプ、システム起動時間、ディスク容量) とその理由を宣言しているか。ビルドは通るので、提出するまで気づけない
