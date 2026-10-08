@@ -40,7 +40,7 @@ macOS の bash 3.2 で開発している。回帰テスト (`scripts/test-base.s
 | gh | GitHub を使うなら | PR、レビューコメント対応、ガードの `gh` の判定 |
 | terraform | 任意 | `.tf` の編集後の `terraform fmt`、`terraform` 操作のガード。無ければ fmt は何もしない |
 
-Claude Code のフックと settings の仕組みを使う。配布先の `~/.claude/settings.json` が既にあると、`./init.sh user` は上書きしない。
+Claude Code のフックと settings の仕組みを使う。配布先の `~/.claude/settings.json` が既にあると、`./init.sh user` は上書きしない。ガードのフックと deny / ask は、`./init.sh user --merge-settings` で既存の設定に足せる (SETUP.md の 1)。
 
 ## セットアップ
 

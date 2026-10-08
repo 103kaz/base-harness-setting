@@ -76,6 +76,45 @@ expect "guard-bash.sh が配布される" test -f "$home/hooks/guard-bash.sh"
 expect "skills が配布される" test -f "$home/skills/adversarial-review/SKILL.md"
 expect "配布した test-guard.sh が通る" bash "$home/hooks/test-guard.sh"
 
+# --- init.sh user: 既存の settings.json ---
+sh_home="$tmp/settings-home"
+mkdir -p "$sh_home"
+echo '{"model":"opus","env":{"A":"1"},"permissions":{"deny":["Read(foo)"],"allow":["Bash(ls)"]},"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"my-own.sh"}]}]}}' >"$sh_home/settings.json"
+cp "$sh_home/settings.json" "$tmp/settings-orig.json"
+out="$(CLAUDE_HOME="$sh_home" "$BASE/init.sh" user 2>&1)"
+expect "既存の settings.json は、統合しないと上書きされない" cmp -s "$tmp/settings-orig.json" "$sh_home/settings.json"
+expect "skip したとき、ガードが働かないことと --merge-settings を案内する" bash -c "grep -q 'ガードは働きません' <<<'$out' && grep -q -- '--merge-settings' <<<'$out'"
+expect "配布の最後に doctor.sh を案内する" bash -c "grep -q 'scripts/doctor.sh' <<<'$out'"
+expect "doctor: 統合前の settings.json は NG" bash -c "CLAUDE_HOME='$sh_home' bash '$BASE/scripts/doctor.sh' 2>&1 | grep -q 'NG    settings.json が PreToolUse に guard-bash.sh を登録していない'"
+CLAUDE_HOME="$sh_home" "$BASE/init.sh" user --merge-settings >/dev/null 2>&1 || ng "init.sh user --merge-settings が失敗"
+expect "統合: 既存のキーが残る" jq -e '.model == "opus" and .env.A == "1" and .permissions.allow == ["Bash(ls)"]' "$sh_home/settings.json"
+expect "統合: 既存の deny が先頭に残り、ベースの deny が足される" jq -e '.permissions.deny[0] == "Read(foo)" and (.permissions.deny | length) > 5' "$sh_home/settings.json"
+expect "統合: 既存のフックが残り、ガードが足される" jq -e '[.hooks.PreToolUse[].hooks[].command] | (index("my-own.sh") != null) and any(contains("guard-bash.sh")) and any(contains("guard-mcp.sh"))' "$sh_home/settings.json"
+expect "統合: 元が .bak に残る" bash -c "ls '$sh_home'/settings.json.bak.* >/dev/null"
+expect "doctor: 統合後は通る" env CLAUDE_HOME="$sh_home" bash "$BASE/scripts/doctor.sh"
+cp "$sh_home/settings.json" "$tmp/settings-merged.json"
+CLAUDE_HOME="$sh_home" "$BASE/init.sh" user --merge-settings >/dev/null 2>&1
+expect "統合: 2 回目は何も変えない (冪等)" cmp -s "$tmp/settings-merged.json" "$sh_home/settings.json"
+expect "統合: 2 回目は .bak を増やさない" bash -c "[ \$(ls '$sh_home'/settings.json.bak.* | wc -l) = 1 ]"
+CLAUDE_HOME="$sh_home" "$BASE/init.sh" user --force --merge-settings >/dev/null 2>&1
+expect "統合: --force と一緒でも、統合した settings.json を上書きしない" jq -e '.model == "opus"' "$sh_home/settings.json"
+# 別の書き方 (絶対パス) で登録済みのガードは、二重に足さない
+sh2="$tmp/settings-home2"; mkdir -p "$sh2"
+echo '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"bash /opt/x/hooks/guard-bash.sh"}]}]}}' >"$sh2/settings.json"
+CLAUDE_HOME="$sh2" "$BASE/init.sh" user --merge-settings >/dev/null 2>&1
+expect "統合: 別の書き方で登録済みの guard-bash.sh は二重にしない" jq -e '[.hooks.PreToolUse[].hooks[].command | select(contains("guard-bash.sh"))] | length == 1' "$sh2/settings.json"
+# JSON として読めない settings.json は、触らずに止まる
+sh3="$tmp/settings-home3"; mkdir -p "$sh3"; echo '{broken' >"$sh3/settings.json"
+CLAUDE_HOME="$sh3" "$BASE/init.sh" user --merge-settings >/dev/null 2>&1; [ $? != 0 ] || ng "壊れた settings.json の統合が失敗しない"
+expect "統合: 壊れた settings.json は変えない" grep -qx '{broken' "$sh3/settings.json"
+# 対話式: 既存の settings.json があれば、統合するかを聞く (y)
+sh4="$tmp/settings-home4"; mkdir -p "$sh4"; cp "$tmp/settings-orig.json" "$sh4/settings.json"
+printf 'n\ny\ny\nn\nn\ny\n' | CLAUDE_HOME="$sh4" "$BASE/init.sh" >/dev/null 2>&1
+expect "対話式: 統合に y と答えると settings.json に足される" jq -e '[.hooks.PreToolUse[].hooks[].command] | any(contains("guard-bash.sh"))' "$sh4/settings.json"
+
+# --- init.sh project: 最後に doctor.sh を案内する ---
+expect "project の案内に doctor.sh が入る" bash -c "'$BASE/init.sh' project '$tmp/doc-hint' --name h 2>&1 | grep -q 'scripts/doctor.sh'"
+
 # --- scripts/doctor.sh ---
 doctor_case() { # doctor_case <説明> <期待する終了コード> <出力に含まれる語> <CLAUDE_HOME> [引数...]。終了コードだけでなく理由まで確かめる
   local desc="$1" want="$2" pat="$3" ch="$4" out rc; shift 4
