@@ -270,7 +270,40 @@ check $ASK   'gh api -X PUT repos/o/r/vulnerability-alerts'
 check $ASK   'gh api -X PUT repos/o/r/actions/permissions/fork-pr-contributor-approval -f approval_policy=all_external_contributors'
 check $ASK   'gh api -X POST repos/o/r/rulesets --input /tmp/ruleset.json'
 check $ASK   'gh api -X DELETE repos/o/r/rulesets/12'
-check $ASK   'gh api repos/o/r/rulesets -X POST --input x.json 2>&1 | head'
+check $ASK   'gh api repos/o/r/rulesets -X POST --input x.json 2>&1'
+check $ASK   'gh api -X PATCH repos/o/r -f security_and_analysis[secret_scanning][status]=enabled'
+check $ASK   'gh api -X put repos/o/r/vulnerability-alerts --silent'
+# 経路に見える語を、フラグの値や引用符の中に置いても通さない。位置引数だけで判定する
+check $BLOCK 'gh api -X PUT repos/o/r/pulls/1/merge --jq repos/o/r'
+check $BLOCK 'gh api -X PUT repos/o/r/pulls/1/merge -H repos/o/r'
+check $BLOCK "gh api -X PUT repos/o/r/pulls/1/merge -f 'merge_method=squash repos/o/r '"
+check $BLOCK 'gh api -X DELETE repos/o/r/git/refs/heads/x --jq repos/o/r'
+check $BLOCK 'gh api -X PUT repos/o/r/collaborators/u -f permission=admin --jq repos/o/r/rulesets'
+check $BLOCK 'gh api -X PUT repos/o/r/vulnerability-alerts repos/o/r/pulls/1/merge'
+# 経路ごとに、許すメソッドを絞る (リポジトリ本体の DELETE = 削除、など)
+check $BLOCK 'gh api -X DELETE repos/o/r'
+check $BLOCK 'gh api -X POST repos/o/r'
+check $BLOCK 'gh api -X PUT repos/o/r'
+check $BLOCK 'gh api -X POST repos/o/r/vulnerability-alerts'
+check $BLOCK 'gh api -X PATCH repos/o/r/rulesets'
+check $BLOCK 'gh api -X DELETE repos/o/r/actions/permissions'
+check $BLOCK 'gh api repos/o/r -f description=x'
+# 引用符・パイプ・展開・難読化したコマンドは、設定の経路でも通さない
+check $BLOCK "gh api -X PATCH repos/o/r -f 'visibility=private'"
+check $BLOCK 'gh api -X PATCH repos/o/r -f "name=x"'
+check $BLOCK "gh api -X PATCH repos/o/r -F 'archived=true'"
+check $BLOCK "gh api -X PATCH repos/o/r --field 'private=true'"
+check $BLOCK "gh api -X PATCH repos/o/r -f n''ame=x"
+check $BLOCK 'gh api -X PATCH repos/o/r -f Name=x'
+check $BLOCK 'gh api -X PATCH repos/o/r -f default_branch=x'
+check $BLOCK 'gh api -X PATCH repos/o/r/ --input x.json --jq repos/o/r/rulesets'
+check $BLOCK 'gh api -X PUT repos/o/r/vulnerability-alerts | "gh" api -X PUT repos/o/r/pulls/1/merge'
+check $BLOCK "gh api -X PUT repos/o/r/vulnerability-alerts | xargs g''h api -X PUT repos/o/r/pulls/1/merge"
+check $BLOCK 'gh api -X PUT repos/o/r/vulnerability-alerts | bash'
+check $BLOCK 'gh api -X PUT repos/o/r/vulnerability-alerts || gh pr merge 1 --squash'
+check $BLOCK 'gh api -X PATCH repos/o/r -f ${V}=x'
+check $BLOCK 'gh api -X PATCH repos/o/r -fname=x'
+check $BLOCK 'gh api -X PATCH repos/o/r --hostname evil.example -f has_wiki=false'
 check $BLOCK 'gh api -X PATCH repos/o/r -f visibility=private'
 check $BLOCK 'gh api -X PATCH repos/o/r -F archived=true'
 check $BLOCK 'gh api -X PATCH repos/o/r -f name=x'

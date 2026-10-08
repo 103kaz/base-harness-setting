@@ -226,22 +226,59 @@ fi
 if grep -Eq 'gh([^|;&]*)[[:space:]]pr[[:space:]]+merge([^|;&]*)[[:space:]](--admin|--auto)' <<<"$cmd"; then
   block "gh pr merge --admin / --auto は禁止 (確認済みの PR を通常マージする)"
 fi
+# gh_api_settings_ok <コマンド>: リポジトリ設定の経路への、単独の gh api の変更系呼び出しなら 0。
+# 引用符・パイプ・変数展開などを含まない安全な文字だけのコマンドを、トークンに分けて (メソッド × パス × フィールド) で照合する。
+# 位置引数はちょうど 1 つで、フラグの値や他の語では判定しない。分からないフラグは拒否する
+gh_api_settings_ok() {
+  local c="${1//2>&1/}" a m="" path="" input=0 i=2 key
+  local -a t keys=()
+  [[ "$c" =~ ^[][[:alnum:]_./=:@,[:space:]-]+$ ]] || return 1
+  read -ra t <<<"$c"
+  [ "${t[0]:-}" = gh ] && [ "${t[1]:-}" = api ] || return 1
+  while [ "$i" -lt "${#t[@]}" ]; do
+    a="${t[$i]}"; i=$((i + 1))
+    case "$a" in
+      -X|--method) m="${t[$i]:-}"; i=$((i + 1)) ;;
+      --method=*) m="${a#*=}" ;;
+      -f|-F|--field|--raw-field) key="${t[$i]:-}"; i=$((i + 1)); keys+=("${key%%=*}") ;;
+      --field=*|--raw-field=*) key="${a#*=}"; keys+=("${key%%=*}") ;;
+      --input) input=1; i=$((i + 1)) ;;
+      --input=*) input=1 ;;
+      -H|--header|-q|--jq|-t|--template) i=$((i + 1)) ;;
+      --header=*|--jq=*|--template=*|-i|--include|--silent|--verbose) ;;
+      -*) return 1 ;;
+      *) [ -z "$path" ] || return 1; path="$a" ;;
+    esac
+  done
+  m="$(tr '[:lower:]' '[:upper:]' <<<"$m")"
+  if [ -z "$m" ]; then
+    { [ "${#keys[@]}" -gt 0 ] || [ "$input" = 1 ]; } && m=POST || return 1
+  fi
+  local rest
+  [[ "$path" =~ ^repos/[^/]+/[^/]+(/.*)?$ ]] || return 1
+  rest="${BASH_REMATCH[1]}"
+  case "$rest" in
+    "")
+      # リポジトリ本体: PATCH だけ。許可するキーは機能・マージ方法・説明・セキュリティ設定のみ (公開範囲・改名・既定ブランチ・アーカイブは除く)
+      [ "$m" = PATCH ] && [ "$input" = 0 ] || return 1
+      for key in "${keys[@]}"; do
+        [[ "$key" =~ ^(delete_branch_on_merge|allow_[a-z_]+|has_[a-z_]+|description|homepage|web_commit_signoff_required|(squash_)?merge_commit_(title|message)|security_and_analysis\[[a-z_]+\]\[status\])$ ]] || return 1
+      done ;;
+    /rulesets) [ "$m" = POST ] ;;
+    /rulesets/[0-9]*) [[ "$rest" =~ ^/rulesets/[0-9]+$ ]] && { [ "$m" = PUT ] || [ "$m" = DELETE ]; } ;;
+    /private-vulnerability-reporting|/vulnerability-alerts) [ "$m" = PUT ] || [ "$m" = DELETE ] ;;
+    /actions/permissions|/actions/permissions/*) [[ "$rest" =~ ^/actions/permissions(/[A-Za-z0-9_-]+)*$ ]] && [ "$m" = PUT ] ;;
+    *) return 1 ;;
+  esac
+}
 # gh api の変更系呼び出しは承認 (ask) やブロックを迂回できるため禁止 (GET のみ可)。
 # 例外: リポジトリの設定の経路 (リポジトリ本体・rulesets・private-vulnerability-reporting・vulnerability-alerts・actions/permissions) への
-# 単独の呼び出しは、ユーザーの承認 (ask) を経て可。公開範囲・改名などのフィールドと、リポジトリ本体への --input は除く
+# 単独の呼び出しは、ユーザーの承認 (ask) を経て可。経路ごとに許すメソッドとフィールドを絞る (gh_api_settings_ok)
 if grep -Eq "${P}gh[[:space:]]+api([^|;&]*)[[:space:]](-X|--method)[[:space:]=]*[\"']?(POST|PUT|PATCH|DELETE|post|put|patch|delete)" <<<"$cmd" \
    || { grep -Eq "${P}gh[[:space:]]+api([^|;&]*)[[:space:]](-f|-F|--field|--raw-field|--input)([[:space:]=]|$)" <<<"$cmd" \
         && ! { grep -Eq "${P}gh[[:space:]]+api[[:space:]]+graphql([[:space:]]|$)" <<<"$cmd" \
                && ! grep -Eiq 'mutation|--input' <<<"$cmd"; }; }; then
-  gh_cmd="${cmd//2>&1/}"
-  gh_path='[[:space:]]repos/[^/[:space:]]+/[^/[:space:]]+(/(rulesets(/[0-9]+)?|private-vulnerability-reporting|vulnerability-alerts|actions/permissions(/[A-Za-z0-9_-]+)*))?([[:space:]]|$)'
-  gh_root='[[:space:]]repos/[^/[:space:]]+/[^/[:space:]]+([[:space:]]|$)'
-  if [ "$(wc -l <<<"$gh_cmd" | tr -d ' ')" -le 1 ] \
-     && [ "$(grep -oE 'gh[[:space:]]+api' <<<"$gh_cmd" | wc -l | tr -d ' ')" = 1 ] \
-     && ! grep -Eq '[;&`]|\$\(' <<<"$gh_cmd" \
-     && grep -Eq "${P}gh[[:space:]]+api${gh_path}|${P}gh[[:space:]]+api[^|;&]*${gh_path}" <<<"$gh_cmd" \
-     && ! grep -Eq '(^|[[:space:]])(-f|-F|--field|--raw-field)[[:space:]=]*(visibility|archived|default_branch|name|private)=' <<<"$gh_cmd" \
-     && ! { grep -Eq "$gh_root" <<<"$gh_cmd" && grep -Eq '(^|[[:space:]])--input([[:space:]=]|$)' <<<"$gh_cmd"; }; then
+  if [ "$(wc -l <<<"$cmd" | tr -d ' ')" -le 1 ] && gh_api_settings_ok "$cmd"; then
     pending_ask="gh api (リポジトリ設定の変更): ユーザーがチャットで対象のリポジトリと設定を指して OK していることを確認して承認してください"
   else
     block "gh api の変更系リクエスト (POST/PUT/PATCH/DELETE、-f/-F/--input) は禁止 (リポジトリ設定の経路への単独の呼び出しを除く)"
