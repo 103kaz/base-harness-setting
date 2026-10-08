@@ -62,9 +62,12 @@ fi
 # ガードを実際に動かす。cwd の git の状態に左右されないよう、空のディレクトリで動かす
 if [ -f "$home/hooks/guard-bash.sh" ] && command -v jq >/dev/null; then
   mkdir -p "$tmp/cwd"
+  # 入力はパイプでなくファイルから渡す。標準入力を読まずに終わるガードだと、パイプでは jq が書き込みに失敗して
+  # (終了コード 2)、pipefail のもとで「ガードが 2 で止めた」と誤って読める
   gcase() { # gcase <説明> <期待する終了コード> <コマンド>
     local rc
-    (cd "$tmp/cwd" && jq -n --arg c "$3" '{tool_input:{command:$c}}' | bash "$home/hooks/guard-bash.sh" >/dev/null 2>&1); rc=$?
+    jq -n --arg c "$3" '{tool_input:{command:$c}}' >"$tmp/in.json"
+    (cd "$tmp/cwd" && bash "$home/hooks/guard-bash.sh" <"$tmp/in.json" >/dev/null 2>&1); rc=$?
     if [ "$rc" = "$2" ]; then ok "ガード: $1"; else ng "ガード: $1 (終了コード $rc、期待は $2)"; fi
   }
   gcase "普通のコマンドは通す (ls)"                      0 'ls'
@@ -77,9 +80,11 @@ if [ -f "$home/hooks/guard-bash.sh" ] && command -v jq >/dev/null; then
   gcase "terraform destroy を止める"                     2 'terraform destroy'
   gcase "gh api の変更系 (設定の経路の外) を止める"       2 'gh api -X PUT repos/o/r/pulls/1/merge'
   if [ -f "$home/hooks/guard-mcp.sh" ]; then
-    out="$(jq -n '{tool_name:"mcp__x__delete_thing",tool_input:{}}' | bash "$home/hooks/guard-mcp.sh" 2>/dev/null)"
+    jq -n '{tool_name:"mcp__x__delete_thing",tool_input:{}}' >"$tmp/in.json"
+    out="$(bash "$home/hooks/guard-mcp.sh" <"$tmp/in.json" 2>/dev/null)"
     if grep -q '"ask"' <<<"$out"; then ok "ガード: MCP の削除系は確認に回す"; else ng "ガード: MCP の削除系を確認に回さない"; fi
-    out="$(jq -n '{tool_name:"mcp__x__list_things",tool_input:{}}' | bash "$home/hooks/guard-mcp.sh" 2>/dev/null)"
+    jq -n '{tool_name:"mcp__x__list_things",tool_input:{}}' >"$tmp/in.json"
+    out="$(bash "$home/hooks/guard-mcp.sh" <"$tmp/in.json" 2>/dev/null)"
     if [ -z "$out" ]; then ok "ガード: MCP の読み取り系は通す"; else ng "ガード: MCP の読み取り系を止める"; fi
   fi
 fi

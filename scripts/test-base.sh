@@ -88,7 +88,10 @@ doctor_case "doctor: 雛形のままの verify.sh は warn で止めない" 0 "w
 dh; rm "$tmp/dh/hooks/guard-bash.sh"
 doctor_case "doctor: ガードのファイルが無ければ NG" 1 "NG    hooks/guard-bash.sh が無い" "$tmp/dh"
 dh; printf '#!/bin/bash\nexit 0\n' >"$tmp/dh/hooks/guard-bash.sh"
-doctor_case "doctor: 何も止めないガードは NG" 1 "NG    ガード: main への force push を止める" "$tmp/dh"
+# 標準入力を読まずに終わるガードは、パイプで渡すと jq の書き込み失敗 (終了コード 2) が「止めた」と誤読される。タイミング次第なので繰り返す
+for _ in 1 2 3 4 5 6 7 8; do
+  doctor_case "doctor: 何も止めないガードは NG" 1 "NG    ガード: main への force push を止める" "$tmp/dh"
+done
 dh; printf '#!/bin/bash\nexit 2\n' >"$tmp/dh/hooks/guard-bash.sh"
 doctor_case "doctor: 何でも止めるガードは NG" 1 "NG    ガード: 普通のコマンドは通す (ls)" "$tmp/dh"
 dh; echo '{"//":"guard-bash.sh guard-mcp.sh remind-adversarial-review.sh","deny":[]' >"$tmp/dh/settings.json"
