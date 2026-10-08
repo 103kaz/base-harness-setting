@@ -126,6 +126,12 @@ Claude Code のフックと settings の仕組みを使う。配布先の `~/.cl
 - プロジェクト固有の `autoMode` 設定
 - 自走ループ (タスクリスト駆動)。必要になったら足す
 
+## 質問・不具合・要望
+
+使ってみて引っかかったこと、動かなかったこと、足してほしいものは、[issue](https://github.com/103kaz/base-harness-setting/issues) に書いてください。動かなかったときは、OS、Claude Code のバージョン、実行したコマンド、`bash scripts/doctor.sh` の出力があると確認が早くなります。個人で運用しているので、返信の期限は約束できません。
+
+脆弱性は、公開の issue ではなく [SECURITY.md](SECURITY.md) の方法で報告してください。
+
 ## ライセンス
 
 MIT ([LICENSE](LICENSE))
