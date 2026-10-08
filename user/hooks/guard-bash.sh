@@ -230,8 +230,9 @@ fi
 # 引用符・パイプ・変数展開などを含まない安全な文字だけのコマンドを、トークンに分けて (メソッド × パス × フィールド) で照合する。
 # 位置引数はちょうど 1 つで、フラグの値や他の語では判定しない。分からないフラグは拒否する
 gh_api_settings_ok() {
-  local c="${1//2>&1/}" a m="" path="" input=0 i=2 key
+  local c=" $1 " a m="" path="" input=0 i=2 key
   local -a t keys=()
+  c="${c// 2>&1 / }"; c="${c// 2>&1 / }"   # 独立した語の 2>&1 だけ除く (語に連結したものを作り替えない)
   [[ "$c" =~ ^[][[:alnum:]_./=:@,[:space:]-]+$ ]] || return 1
   read -ra t <<<"$c"
   [ "${t[0]:-}" = gh ] && [ "${t[1]:-}" = api ] || return 1
@@ -240,8 +241,8 @@ gh_api_settings_ok() {
     case "$a" in
       -X|--method) m="${t[$i]:-}"; i=$((i + 1)) ;;
       --method=*) m="${a#*=}" ;;
-      -f|-F|--field|--raw-field) key="${t[$i]:-}"; i=$((i + 1)); keys+=("${key%%=*}") ;;
-      --field=*|--raw-field=*) key="${a#*=}"; keys+=("${key%%=*}") ;;
+      -f|-F|--field|--raw-field) key="${t[$i]:-}"; i=$((i + 1)); [[ "${key#*=}" != @* ]] || return 1; keys+=("${key%%=*}") ;;
+      --field=*|--raw-field=*) key="${a#*=}"; [[ "${key#*=}" != @* ]] || return 1; keys+=("${key%%=*}") ;;   # 値の @ファイル は、手元のファイルを送れるので拒否
       --input) input=1; i=$((i + 1)) ;;
       --input=*) input=1 ;;
       -H|--header|-q|--jq|-t|--template) i=$((i + 1)) ;;
@@ -261,7 +262,7 @@ gh_api_settings_ok() {
     "")
       # リポジトリ本体: PATCH だけ。許可するキーは機能・マージ方法・説明・セキュリティ設定のみ (公開範囲・改名・既定ブランチ・アーカイブは除く)
       [ "$m" = PATCH ] && [ "$input" = 0 ] || return 1
-      for key in "${keys[@]}"; do
+      for key in ${keys[@]+"${keys[@]}"}; do
         [[ "$key" =~ ^(delete_branch_on_merge|allow_[a-z_]+|has_[a-z_]+|description|homepage|web_commit_signoff_required|(squash_)?merge_commit_(title|message)|security_and_analysis\[[a-z_]+\]\[status\])$ ]] || return 1
       done ;;
     /rulesets) [ "$m" = POST ] ;;
