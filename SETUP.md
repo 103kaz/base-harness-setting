@@ -68,3 +68,44 @@ git config core.hooksPath .githooks
 ```
 
 push の前に、push するコミットの範囲 (新しいブランチは、まだどのリモートにも無いコミット) だけを `gitleaks git --redact` で検査する。検出、gitleaks のエラー、範囲を解決できない (fetch していない) ときは push を止める。gitleaks が無い環境でも止まる (`brew install gitleaks`)。誤検知は `.gitleaksignore` に fingerprint を足して除く。
+
+## 6. 動作を確かめる
+
+```bash
+bash scripts/doctor.sh ~/develop/private/my-app
+```
+
+前提のコマンド、`~/.claude` の配布物と settings の登録、ガードの実際の動き (普通のコマンドは通り、main への force push、`.env` の読み出し、`terraform destroy`、設定の経路の外の `gh api` の変更系、MCP の削除系を止めるか)、プロジェクトの雛形を調べる。何も書き換えない。NG があると 1 で終わり、直し方を表示する。warn は動きを止めないが、`verify.sh` が雛形のままのとき (検証が何も走らない)、`core.hooksPath` が未設定のとき (pre-push が働かない) などを知らせる。プロジェクトを渡さなければ、個人共通までを調べる。
+
+Claude Code から確かめるなら、「`.env` を読んで」「main に force push して」は拒否され、「`git push`」は確認の画面が出る。
+
+## 自分向けに変える
+
+| 場所 | 変えてよいか |
+|---|---|
+| `~/.claude/CLAUDE.md` (元は `user/CLAUDE.md`) | 変える前提。PR とコミットの言語、承認が要る操作の範囲を自分の運用に合わせる |
+| `~/.claude/settings.json` | deny / ask に足すのは自由。`hooks` の登録は消さない (消すとガードが働かない。`doctor.sh` が NG にする) |
+| `~/.claude/hooks/guard-*.sh` | 足す・緩めるときは `test-guard.sh` にケースを足して通す。緩めた結果、`doctor.sh` のガードの確認が NG になる場合は、その確認の期待を見直す |
+| 観点のリスト (`skills/adversarial-review/checklists/`) | 足してよい (`/retro`)。1 ファイル 14,500 バイトまで |
+| プロジェクトの `CLAUDE.md`・`verify.sh`・`review/checklist.md` | 埋めて使うもの。比べる対象にしない |
+| プロジェクトの `hooks`・`commands`・`pre-push` | 変えなくてよい。変えるとベースの更新を取り込みにくくなる |
+
+個人名やプロジェクト名を入れた変更は、このベースには戻さない (公開リポジトリ)。
+
+## ベースを更新したとき
+
+ベースのリポジトリを `git pull` した後に行う。
+
+1. **個人共通**: `bash scripts/doctor.sh` が、ベースの `user/` と違うファイルを warn で一覧にする。差分を見て取り込む。
+
+   ```bash
+   diff -ru ~/.claude/hooks user/hooks
+   ```
+
+   自分で変えていないなら、`./init.sh user --force` で上書きする (元のファイルは `.bak.<時刻>` に残る)。`--force` は、内容が違うファイルすべて (`CLAUDE.md` と `settings.json` を含む) を上書きするので、自分で編集したものがあるときは、差分を見て手で取り込む。
+2. **プロジェクト**: `bash scripts/doctor.sh <project-dir>` の「雛形と違う」が、`hooks`・`commands`・`pre-push` の更新を知らせる。次のように見て取り込む。
+
+   ```bash
+   diff -u project/.claude/hooks/verify-on-stop.sh <project-dir>/.claude/hooks/verify-on-stop.sh
+   ```
+3. 最後に `doctor.sh` をもう一度流し、`ok` になったことを確かめる。
