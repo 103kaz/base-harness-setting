@@ -23,14 +23,14 @@ templates/                  言語別の観点の雛形 (`./init.sh lang` が使
 scripts/test-base.sh        init.sh・検証ループ・pre-push の回帰テスト
 scripts/check-sync.sh       ~/.claude とこのベースの user/ (フック・スキル) が一致しているかの確認
 scripts/doctor.sh           導入の確認 (前提のコマンド、配布物、ガードの実際の動き、プロジェクトの雛形)
-.github/workflows/test.yml  scripts/test-base.sh を ubuntu と macOS で流す
+.github/workflows/test.yml  scripts/test-base.sh を ubuntu で流す (macOS は手元で流す)
 ```
 
 ルートの `CLAUDE.md`・`.claude/`・`.githooks/` は、このリポジトリ自身の開発に使う設定 (雛形を自分自身に入れたもの)。配布物ではない。
 
 ## 前提
 
-macOS の bash 3.2 で開発している。回帰テスト (`scripts/test-base.sh`) は CI で ubuntu と macOS の両方で流す。
+macOS の bash 3.2 で開発している。回帰テスト (`scripts/test-base.sh`) は、macOS では手元で、Linux (ubuntu) では CI で流す。
 
 | コマンド | 要否 | 用途 |
 |---|---|---|

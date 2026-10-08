@@ -14,17 +14,8 @@ concurrency:
 
 jobs:
   test:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            gitleaks_asset: gitleaks_8.30.1_linux_x64.tar.gz
-            gitleaks_sha256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
-          - os: macos-latest
-            gitleaks_asset: gitleaks_8.30.1_darwin_arm64.tar.gz
-            gitleaks_sha256: b40ab0ae55c505963e365f271a8d3846efbc170aa17f2607f13df610a9aeb6a5
-    runs-on: ${{ matrix.os }}
+    # Linux だけで流す。macOS のランナーは、非公開にしたときに無料枠を 10 倍の速さで減らすので使わない (macOS は手元で流す)
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -32,11 +23,11 @@ jobs:
           persist-credentials: false
       - name: gitleaks 8.30.1 を入れる (pre-push のテストに要る。チェックサムを確かめる)
         env:
-          ASSET: ${{ matrix.gitleaks_asset }}
-          SHA256: ${{ matrix.gitleaks_sha256 }}
+          ASSET: gitleaks_8.30.1_linux_x64.tar.gz
+          SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
         run: |
           curl -fsSL -o "$RUNNER_TEMP/$ASSET" "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/$ASSET"
-          echo "$SHA256  $RUNNER_TEMP/$ASSET" | shasum -a 256 -c -
+          echo "$SHA256  $RUNNER_TEMP/$ASSET" | sha256sum -c -
           mkdir -p "$RUNNER_TEMP/gitleaks-bin"
           tar -xzf "$RUNNER_TEMP/$ASSET" -C "$RUNNER_TEMP/gitleaks-bin" gitleaks
           echo "$RUNNER_TEMP/gitleaks-bin" >> "$GITHUB_PATH"
