@@ -534,5 +534,15 @@ if ! jq -n '{prompt:"レビューして"}' | bash ./remind-adversarial-review.sh
   fail=1
 fi
 
+# jq が無い環境では、ガードは何も通さず、理由を出して止める (jq が無いまま素通りさせない)
+for g in guard-bash.sh guard-mcp.sh; do
+  n=$((n + 1))
+  out="$(echo '{"tool_name":"x","tool_input":{"command":"ls"}}' | PATH=/nonexistent /bin/bash "$HOOKS/$g" 2>&1)"; rc=$?
+  if [ "$rc" != 2 ] || ! grep -q 'jq が見つかりません' <<<"$out"; then
+    echo "FAIL: jq が無いとき $g が止めない (終了コード $rc)"
+    fail=1
+  fi
+done
+
 if [ "$fail" = 0 ]; then echo "all $n global guard tests passed"; fi
 exit "$fail"
