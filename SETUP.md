@@ -85,6 +85,16 @@ bash scripts/doctor.sh ~/develop/private/my-app
 
 Claude Code から確かめるなら、「`.env` を読んで」「main に force push して」は拒否され、「`git push`」は確認の画面が出る。
 
+**セッションは、プロジェクトのルートをメインのフォルダにして開く。** Claude Code がプロジェクトの `.claude/settings.json` を読むのは、メインのフォルダだけで、親のディレクトリを開いて配下を追加フォルダにしても読まれない。その場合、`~/.claude` に登録したガードは働くが、検証ループ (UserPromptSubmit と Stop のフック) は何も言わずに無効になる。`doctor.sh` はこの状態を検出できない。
+
+検証ループが効いているかは、セッションを開いて何か 1 回送った後に、次のコマンドで確かめる。
+
+```bash
+ls -la "${TMPDIR:-/tmp}/claude-verify"
+```
+
+`<session_id>.mark` ができていれば、UserPromptSubmit のフックが走っている (git リポジトリのときだけ作られる)。`verify.sh` が失敗して Stop フックが Claude に返したときは、`<session_id>.count` もできる (3 回続けて失敗して応答を終えると消える)。ディレクトリが無いときは、セッションを開いたフォルダを確かめる。
+
 ## 自分向けに変える
 
 | 場所 | 変えてよいか |
